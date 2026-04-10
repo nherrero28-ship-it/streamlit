@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 from deep_translator import GoogleTranslator
 import os
+import subprocess
 
 # ------------------------
 # Page config + styling
@@ -13,57 +14,75 @@ st.set_page_config(page_title="Notes Transcriber", layout="wide")
 
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #0f172a;
-        color: #e5e7eb;
-    }
-    textarea, input {
-        background-color: #1e293b !important;
-        color: white !important;
-    }
-    .stButton button {
-        background-color: #2563eb;
-        color: white;
-        border-radius: 6px;
-    }
+    .stApp { background-color: #0f172a; color: #e5e7eb; }
+    textarea, input { background-color: #1e293b !important; color: white !important; }
+    .stButton button { background-color: #2563eb; color: white; border-radius: 6px; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("Notes Transcriber")
 
 # ------------------------
-# Tesseract config (local + cloud)
+# Tesseract config
 # ------------------------
 if os.name == "posix":
     pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
+# ------------------------
+# DEBUG PANEL — muéstrame esto cuando falle
+# ------------------------
+with st.expander("🔧 Debug info (comparte esto si algo falla)"):
+    # Check tesseract binary
+    try:
+        result = subprocess.run(["tesseract", "--version"], capture_output=True, text=True)
+        st.success(f"✅ Tesseract encontrado:\n{result.stdout}")
+    except FileNotFoundError:
+        st.error("❌ Tesseract NO está instalado — este es el problema")
+
+    # Check available languages
+    try:
+        result = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True)
+        st.info(f"Idiomas disponibles:\n{result.stdout}\n{result.stderr}")
+    except Exception as e:
+        st.error(f"No se pudieron listar idiomas: {e}")
+
+    # Check pytesseract
+    try:
+        ver = pytesseract.get_tesseract_version()
+        st.success(f"✅ pytesseract versión: {ver}")
+    except Exception as e:
+        st.error(f"❌ pytesseract error: {e}")
+
+    # Check opencv
+    try:
+        st.success(f"✅ OpenCV versión: {cv2.__version__}")
+    except Exception as e:
+        st.error(f"❌ OpenCV error: {e}")
 
 # ------------------------
 # Session state
 # ------------------------
 if "text" not in st.session_state:
     st.session_state.text = ""
-
 if "docs" not in st.session_state:
     st.session_state.docs = {}
 
 # ------------------------
-# Image preprocessing  (FIX 1: better preprocessing)
+# Image preprocessing
 # ------------------------
 def preprocess(img):
-    img_array = np.array(img.convert("L"))  # grayscale
+    img_array = np.array(img.convert("L"))
     img_array = cv2.resize(img_array, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    # Use adaptive thresholding instead of fixed — handles uneven lighting & varied notes
     img_array = cv2.adaptiveThreshold(
         img_array, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY, 31, 10
     )
-    # Mild denoise
     img_array = cv2.medianBlur(img_array, 3)
     return img_array
 
 # ------------------------
-# Simple classification
+# Classification
 # ------------------------
 def classify(text):
     text = text.lower()
@@ -88,28 +107,32 @@ if file:
     st.image(image, caption="Uploaded image")
 
     if st.button("Extract text", key="extract_btn"):
-        with st.spinner("Extracting text..."):
-            processed = preprocess(image)
-            # FIX 2: use --psm 3 (auto) and oem 3 for best results;
-            # keep spa+eng so mixed content works
-            lang = "spa+eng"
+        with st.spinner("Extrayendo texto..."):
             try:
-                text = pytesseract.image_to_string(
-                    processed,
-                    lang=lang,
-                    config="--psm 3 --oem 3"
-                )
-            except pytesseract.TesseractError:
-                # fallback to eng only if spa lang pack missing
-                text = pytesseract.image_to_string(
-                    processed,
-                    lang="eng",
-                    config="--psm 3 --oem 3"
-                )
-            st.session_state.text = text.strip()
+                processed = preprocess(image)
+
+                # Try spa+eng first, fall back to eng only
+                try:
+                    text = pytesseract.image_to_string(
+                        processed, lang="spa+eng", config="--psm 3 --oem 3"
+                    )
+                except pytesseract.TesseractError as lang_err:
+                    st.warning(f"spa+eng falló ({lang_err}), intentando solo con eng...")
+                    text = pytesseract.image_to_string(
+                        processed, lang="eng", config="--psm 3 --oem 3"
+                    )
+
+                if text.strip():
+                    st.session_state.text = text.strip()
+                    st.success("✅ Texto extraído correctamente")
+                else:
+                    st.warning("⚠️ Tesseract no encontró texto en la imagen. Prueba con una imagen más clara.")
+
+            except Exception as e:
+                st.error(f"❌ Error al extraer texto: {e}")
 
 # ------------------------
-# FIX 3: Editable text area — use on_change callback to avoid overwrite loop
+# Editable text area
 # ------------------------
 def on_text_change():
     st.session_state.text = st.session_state._text_area
@@ -127,10 +150,9 @@ st.text_area(
 # ------------------------
 col1, col2, col3 = st.columns(3)
 
-# Save
 with col1:
     st.markdown("**Save document**")
-    name = st.text_input("Document name", key="doc_name_input")  # FIX 4: explicit key
+    name = st.text_input("Document name", key="doc_name_input")
     if st.button("Save", key="save_btn"):
         if name and st.session_state.text:
             category = classify(st.session_state.text)
@@ -144,26 +166,21 @@ with col1:
         else:
             st.warning("No text to save.")
 
-# Translate
 with col2:
     st.markdown("**Translate text**")
     lang = st.selectbox("Translate to", ["en", "es", "fr", "de", "it"], key="lang_select")
     if st.button("Translate", key="translate_btn"):
         if st.session_state.text:
-            with st.spinner("Translating..."):
+            with st.spinner("Traduciendo..."):
                 try:
-                    translated = GoogleTranslator(
-                        source="auto",
-                        target=lang
-                    ).translate(st.session_state.text)
+                    translated = GoogleTranslator(source="auto", target=lang).translate(st.session_state.text)
                     st.session_state.text = translated
-                    st.rerun()  # FIX 5: force UI refresh after state change
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Translation error: {e}")  # FIX 6: show real error
+                    st.error(f"Translation error: {e}")
         else:
             st.warning("No text to translate.")
 
-# Download
 with col3:
     st.markdown("**Export**")
     if st.session_state.text:
@@ -175,13 +192,13 @@ with col3:
         )
 
 # ------------------------
-# Search — FIX 7: unique key so it doesn't conflict with doc_name_input
+# Search
 # ------------------------
 st.subheader("Search documents")
 search = st.text_input("Type to search", key="search_input")
 
 # ------------------------
-# Saved documents — FIX 8: use radio/selectbox instead of buttons in loop
+# Saved documents
 # ------------------------
 st.subheader("Saved documents")
 
@@ -192,12 +209,11 @@ if st.session_state.docs:
         or search.lower() in n.lower()
         or search.lower() in d["content"].lower()
     }
-
     if filtered:
-        for name, data in filtered.items():
-            with st.expander(f"📄 {name}  —  *{data['category']}*"):
+        for doc_name, data in filtered.items():
+            with st.expander(f"📄 {doc_name}  —  *{data['category']}*"):
                 st.text(data["content"][:500] + ("..." if len(data["content"]) > 500 else ""))
-                if st.button(f"Load '{name}'", key=f"load_{name}"):  # FIX 9: unique key per button
+                if st.button(f"Load '{doc_name}'", key=f"load_{doc_name}"):
                     st.session_state.text = data["content"]
                     st.rerun()
     else:
