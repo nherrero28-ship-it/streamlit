@@ -12,24 +12,24 @@ st.title("Notes Transcriber")
 if os.name == "posix":
     pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
-file = st.file_uploader("Sube una imagen", type=["png", "jpg", "jpeg"])
+file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
 
 if file:
     image = Image.open(file)
-    st.image(image, caption="Imagen subida", use_column_width=True)
+    st.image(image, caption="Uploaded image", use_column_width=True)
 
-    if st.button("Extraer texto"):
-        with st.spinner("Procesando..."):
+    if st.button("Extract text"):
+        with st.spinner("Processing..."):
             img = np.array(image.convert("L"))
             _, img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
             try:
-                resultado = pytesseract.image_to_string(img, lang="spa+eng", config="--psm 3")
+                result = pytesseract.image_to_string(img, lang="spa+eng", config="--psm 3")
             except Exception:
-                resultado = pytesseract.image_to_string(img, lang="eng", config="--psm 3")
+                result = pytesseract.image_to_string(img, lang="eng", config="--psm 3")
 
-            if resultado.strip():
-                st.text_area("Texto extraído", value=resultado.strip(), height=400)
-                st.download_button("⬇ Descargar como TXT", resultado.strip(), "notas.txt")
+            if result.strip():
+                st.text_area("Extracted text", value=result.strip(), height=400)
+                st.download_button("⬇ Download as TXT", result.strip(), "notes.txt")
             else:
-                st.warning("No se encontró texto. Prueba con otra imagen.")
+                st.warning("No text found. Try with a clearer image.")
