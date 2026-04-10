@@ -133,7 +133,7 @@ if file:
 
                 if text.strip():
                     st.session_state.text = text.strip()
-                    st.success("✅ Texto extraído correctamente")
+                    st.rerun()
                 else:
                     st.warning("⚠️ Tesseract no encontró texto en la imagen. Prueba con una imagen más clara.")
 
@@ -143,16 +143,13 @@ if file:
 # ------------------------
 # Editable text area
 # ------------------------
-def on_text_change():
-    st.session_state.text = st.session_state._text_area
-
-st.text_area(
+edited = st.text_area(
     "Extracted / Editable Text",
     value=st.session_state.text,
     height=300,
-    key="_text_area",
-    on_change=on_text_change
+    key="text_area_widget"
 )
+st.session_state.text = edited
 
 # ------------------------
 # Actions
