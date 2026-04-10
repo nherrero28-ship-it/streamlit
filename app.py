@@ -71,14 +71,23 @@ if "docs" not in st.session_state:
 # Image preprocessing
 # ------------------------
 def preprocess(img):
+    # Convert to grayscale
     img_array = np.array(img.convert("L"))
-    img_array = cv2.resize(img_array, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    img_array = cv2.adaptiveThreshold(
-        img_array, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 31, 10
+
+    # Resize only if image is small — for phone photos it's usually already large
+    h, w = img_array.shape
+    if max(h, w) < 2000:
+        img_array = cv2.resize(img_array, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+
+    # Denoise before thresholding (helps with photo noise)
+    img_array = cv2.fastNlMeansDenoising(img_array, h=10)
+
+    # Otsu thresholding — works great for printed docs with uneven background
+    _, img_array = cv2.threshold(
+        img_array, 0, 255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU
     )
-    img_array = cv2.medianBlur(img_array, 3)
+
     return img_array
 
 # ------------------------
@@ -114,12 +123,12 @@ if file:
                 # Try spa+eng first, fall back to eng only
                 try:
                     text = pytesseract.image_to_string(
-                        processed, lang="spa+eng", config="--psm 3 --oem 3"
+                        processed, lang="spa+eng", config="--psm 1 --oem 3"
                     )
                 except pytesseract.TesseractError as lang_err:
                     st.warning(f"spa+eng falló ({lang_err}), intentando solo con eng...")
                     text = pytesseract.image_to_string(
-                        processed, lang="eng", config="--psm 3 --oem 3"
+                        processed, lang="eng", config="--psm 1 --oem 3"
                     )
 
                 if text.strip():
